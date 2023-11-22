@@ -2,24 +2,32 @@ package main
 
 import (
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
 
 type TCPServer struct {
 	listenAddr string
 	ln         net.Listener
-	cancelCh   chan os.Signal
+	sigCh      chan os.Signal // For main server to accept SIGTERM
+	readCh     chan []byte    // For all conns to read/write to eachother
+	quitCh     chan bool      // Channel specifically for waiting for sigCh signal
+	wg         sync.WaitGroup // WaitGroup to wait for all goroutines to finish
 }
 
 func NewTCPServer(listenAddr string) *TCPServer {
-	cancelCh := make(chan os.Signal, 1)
-	signal.Notify(cancelCh, syscall.SIGTERM, syscall.SIGINT)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	return &TCPServer{
 		listenAddr: listenAddr,
-		cancelCh:   cancelCh,
+		sigCh:      sigCh,
+		readCh:     make(chan []byte, 10),
+		quitCh:     make(chan bool),
+		wg:         sync.WaitGroup{},
 	}
 }
 
@@ -28,42 +36,35 @@ func (t *TCPServer) Start() {
 	if err != nil {
 		log.Println("Failed to create listener for server")
 	}
-	defer ln.Close()
 	t.ln = ln
 
+	// Start accepting and serving connections
 	go t.acceptLoop()
-
 	log.Println("Server listening at", t.listenAddr)
-	sig := <-t.cancelCh
-	log.Printf("Caught signal %v", sig)
+
+	// Wait for cancel signal, close listener, and wait for goroutines to finish
+	<-t.sigCh
+	close(t.quitCh)
+	ln.Close()
+	t.wg.Wait()
+	log.Println("all goroutines complete!")
 }
 
 func (t *TCPServer) acceptLoop() {
 	for {
 		conn, err := t.ln.Accept()
 		if err != nil {
-			log.Println("Error during Accept - ", err)
-			continue
+			select {
+			case <-t.quitCh:
+				return
+			default:
+				log.Println("Error during Accept - ", err)
+				continue
+			}
 		}
 		log.Println("Accepted new conn - ", conn.RemoteAddr())
 
-		go t.readLoop(conn)
-	}
-}
-
-func (t *TCPServer) readLoop(conn net.Conn) {
-	defer conn.Close()
-	buf := make([]byte, 2048)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Println("Error during Read - ", err)
-			continue
-		}
-
-		msg := string(buf[:n])
-		log.Println(msg)
-		_, err = conn.Write([]byte(msg + "\n"))
+		NewConnHandler(rand.Int(), conn, t.readCh, t.quitCh, &t.wg).startHandlingConn()
 	}
 }
 
