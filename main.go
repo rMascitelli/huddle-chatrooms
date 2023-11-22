@@ -14,7 +14,7 @@ type TCPServer struct {
 	listenAddr string
 	ln         net.Listener
 	sigCh      chan os.Signal // For main server to accept SIGTERM
-	readCh     chan []byte    // For all conns to read/write to eachother
+	readCh     chan Message   // For all conns to read/write to eachother
 	quitCh     chan bool      // Channel specifically for waiting for sigCh signal
 	wg         sync.WaitGroup // WaitGroup to wait for all goroutines to finish
 }
@@ -25,7 +25,7 @@ func NewTCPServer(listenAddr string) *TCPServer {
 	return &TCPServer{
 		listenAddr: listenAddr,
 		sigCh:      sigCh,
-		readCh:     make(chan []byte, 10),
+		readCh:     make(chan Message, 10),
 		quitCh:     make(chan bool),
 		wg:         sync.WaitGroup{},
 	}
@@ -64,7 +64,7 @@ func (t *TCPServer) acceptLoop() {
 		}
 		log.Println("Accepted new conn - ", conn.RemoteAddr())
 
-		NewConnHandler(rand.Int(), conn, t.readCh, t.quitCh, &t.wg).startHandlingConn()
+		NewConnHandler(rand.Intn(1000), conn, t.readCh, t.quitCh, &t.wg).startHandlingConn()
 	}
 }
 

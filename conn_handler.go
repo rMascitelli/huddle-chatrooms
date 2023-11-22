@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+type Message struct {
+	Userid  int
+	Payload string
+}
+
 // A struct to handle the operations for each incoming Conn
 // Conn is per-user
 type ConnHandler struct {
@@ -14,12 +19,12 @@ type ConnHandler struct {
 	conn   net.Conn
 
 	// Common among all
-	readCh chan []byte
+	readCh chan Message
 	quitCh chan bool
 	wg     *sync.WaitGroup
 }
 
-func NewConnHandler(userid int, conn net.Conn, readCh chan []byte, quitCh chan bool, wg *sync.WaitGroup) *ConnHandler {
+func NewConnHandler(userid int, conn net.Conn, readCh chan Message, quitCh chan bool, wg *sync.WaitGroup) *ConnHandler {
 	return &ConnHandler{
 		userid: userid,
 		conn:   conn,
@@ -30,7 +35,7 @@ func NewConnHandler(userid int, conn net.Conn, readCh chan []byte, quitCh chan b
 }
 
 func (c *ConnHandler) startHandlingConn() {
-	log.Println("starting connHandler")
+	log.Printf("starting new connHandler for User%d\n", c.userid)
 	c.wg.Add(1)
 	go c.readFromChLoop(c.conn)
 	go c.readFromConnLoop(c.conn)
@@ -43,7 +48,7 @@ func (c *ConnHandler) startHandlingConn() {
 
 func (c *ConnHandler) readFromChLoop(conn net.Conn) {
 	for msg := range c.readCh {
-		log.Println("Got msg - ", string(msg))
+		log.Printf("[%d]: %s", msg.Userid, msg.Payload)
 		// TODO: If msg.userid != c.userid, send msg over conn
 	}
 }
@@ -58,7 +63,9 @@ func (c *ConnHandler) readFromConnLoop(conn net.Conn) {
 			log.Println("Error during Read - ", err)
 			continue
 		}
-
-		c.readCh <- buf[:n]
+		c.readCh <- Message{
+			Userid:  c.userid,
+			Payload: string(buf[:n]),
+		}
 	}
 }
