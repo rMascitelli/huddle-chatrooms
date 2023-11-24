@@ -1,55 +1,66 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"sync"
 )
 
-type Message struct {
-	Userid  int
+const (
+	LOGIN_PROMPT = "\n##########\n" +
+		"#\n" +
+		"# Welcome to HuddleChats\n" +
+		"#\n" +
+		"##########\n\n> "
+	PROMPT = "> "
+)
+
+type ChatMessage struct {
+	UserId  int
 	Payload string
 }
 
 // A struct to handle the operations for each incoming Conn
 // Conn is per-user
 type ConnHandler struct {
-	// Unique per handler
-	userid int
-	conn   net.Conn
-
-	// Common among all
-	readCh chan Message
-	quitCh chan bool
-	wg     *sync.WaitGroup
+	Userid    int
+	conn      net.Conn
+	wg        *sync.WaitGroup
+	MsgCh     chan ChatMessage // Read incoming published messages from ChatroomManager
+	PublishCh chan ChatMessage // Publish messages to all subs of ChatroomManager
+	QuitCh    chan struct{}
 }
 
-func NewConnHandler(userid int, conn net.Conn, readCh chan Message, quitCh chan bool, wg *sync.WaitGroup) *ConnHandler {
+func NewConnHandler(userid int, conn net.Conn, wg *sync.WaitGroup, publishCh chan ChatMessage, quitCh chan struct{}) *ConnHandler {
 	return &ConnHandler{
-		userid: userid,
-		conn:   conn,
-		readCh: readCh,
-		quitCh: quitCh,
-		wg:     wg,
+		Userid:    userid,
+		conn:      conn,
+		wg:        wg,
+		MsgCh:     make(chan ChatMessage),
+		PublishCh: publishCh,
+		QuitCh:    quitCh,
 	}
 }
 
 func (c *ConnHandler) startHandlingConn() {
-	log.Printf("starting new connHandler for User%d\n", c.userid)
-	c.wg.Add(1)
-	go c.readFromChLoop(c.conn)
+	log.Printf("New connHandler for User%d\n", c.Userid)
 	go c.readFromConnLoop(c.conn)
+	c.wg.Add(1)
+	var msg ChatMessage
 
-	// Wait for a signal from quitCh, then close conn + signal wg Done
-	<-c.quitCh
-	log.Println("closing connHandler")
-	c.wg.Done()
-}
+	for {
+		select {
+		case msg = <-c.MsgCh:
+			DebugPrint(fmt.Sprintf("  %d rcvd '%s'", c.Userid, msg.Payload))
+			formatted_msg := fmt.Sprintf("[%d]: %s\n", msg.UserId, msg.Payload)
+			c.conn.Write([]byte(formatted_msg))
 
-func (c *ConnHandler) readFromChLoop(conn net.Conn) {
-	for msg := range c.readCh {
-		log.Printf("[%d]: %s", msg.Userid, msg.Payload)
-		// TODO: If msg.userid != c.userid, send msg over conn
+		case <-c.QuitCh:
+			log.Println("closing connHandler")
+			c.wg.Done()
+			return
+		}
 	}
 }
 
@@ -63,9 +74,14 @@ func (c *ConnHandler) readFromConnLoop(conn net.Conn) {
 			log.Println("Error during Read - ", err)
 			continue
 		}
-		c.readCh <- Message{
-			Userid:  c.userid,
-			Payload: string(buf[:n]),
+		msg := string(buf[:n])
+
+		// Don't spam new lines
+		if len(msg) > 2 {
+			c.PublishCh <- ChatMessage{
+				UserId:  c.Userid,
+				Payload: msg[:len(msg)-2],
+			}
 		}
 	}
 }
