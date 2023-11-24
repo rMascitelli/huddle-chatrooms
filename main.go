@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	DEBUG_MODE = false
+	DEBUG_MODE = 1
 )
 
 func DebugPrint(s string) {
-	if DEBUG_MODE {
+	if DEBUG_MODE > 0 {
 		fmt.Println(s)
 	}
 }

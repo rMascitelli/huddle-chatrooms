@@ -49,11 +49,11 @@ func NewConnHandler(userid int, conn net.Conn, unsubCh chan int, quitCh chan str
 func (c *ConnHandler) startHandlingConn() {
 	log.Printf("New connHandler for User%d\n", c.UserId)
 	if !c.hasBeenStartedBefore {
-		DebugPrint(fmt.Sprintf("%d NOT been started before\n", c.UserId))
+		DebugPrint(fmt.Sprintf("%d NOT been started before", c.UserId))
 		go c.readFromConnLoop()
 		c.hasBeenStartedBefore = true
 	} else {
-		DebugPrint(fmt.Sprintf("%d HAS been started before\n", c.UserId))
+		DebugPrint(fmt.Sprintf("%d HAS been started before", c.UserId))
 	}
 	var msg ChatMessage
 	var formattedMsg string
@@ -78,11 +78,12 @@ func (c *ConnHandler) startHandlingConn() {
 func (c *ConnHandler) readFromConnOnce() string {
 	readCh := make(chan string)
 	go func(readCh chan string) {
+		log.Println("ANONYMOUS FUNC")
 		buf := make([]byte, 2048)
 		for {
 			n, err := c.conn.Read(buf)
 			if err != nil {
-				log.Println("Error during Read - ", err)
+				log.Printf("%d Error during ReadOnce - %v\n", c.UserId, err)
 				return
 			}
 			msg := string(buf[:n])
@@ -90,10 +91,10 @@ func (c *ConnHandler) readFromConnOnce() string {
 				c.conn.Write([]byte("\nInvalid input, please try again: "))
 				continue
 			} else {
+				msg = msg[:len(msg)-2]
 				readCh <- msg
 				return
 			}
-
 		}
 	}(readCh)
 

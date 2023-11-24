@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"strconv"
 )
 
 type ChatroomManager struct {
@@ -41,10 +42,10 @@ func NewChatroomManager(quitCh chan struct{}) ChatroomManager {
 }
 
 func (cm *ChatroomManager) createDefaultChatrooms() {
-	cm.chatroomIndex[1] = NewChatroomBroker("Test1", 1, cm.quitCh, cm.subCh)
-	cm.chatroomIndex[2] = NewChatroomBroker("Test2", 2, cm.quitCh, cm.subCh)
-	cm.chatroomIndex[3] = NewChatroomBroker("Test3", 3, cm.quitCh, cm.subCh)
-	cm.chatroomIndex[4] = NewChatroomBroker("SpookyMonsterChat", 4, cm.quitCh, cm.subCh)
+	cm.chatroomIndex[1] = NewChatroomBroker("Test1", 1, cm.quitCh)
+	cm.chatroomIndex[2] = NewChatroomBroker("Test2", 2, cm.quitCh)
+	cm.chatroomIndex[3] = NewChatroomBroker("Test3", 3, cm.quitCh)
+	cm.chatroomIndex[4] = NewChatroomBroker("SpookyMonsterChat", 4, cm.quitCh)
 }
 
 func (cm *ChatroomManager) ListenForRequests() {
@@ -73,14 +74,20 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 	for {
 		msg = ch.readFromConnOnce()
 		if msg != "" {
-			msg = msg[:len(msg)-2] // Remove newline
-			if doesExist, chatId := cm.DoesChatroomExist(msg); doesExist {
-				chatroomName := cm.chatroomIndex[chatId].ChatroomName
+			if msg == "$exit" {
+				ch.conn.Write([]byte("\nThanks for coming!\n"))
+				delete(cm.activeConns, userId)
+				ch.conn.Close()
+				return
+			}
+			chatIdx, err := strconv.Atoi(msg)
+			if err == nil && cm.DoesChatroomExist(chatIdx) {
+				chatroomName := cm.chatroomIndex[chatIdx].ChatroomName
 				log.Println("Changing to chat:", chatroomName)
 				ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", chatroomName)))
 				ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, chatroomName)))
 				cm.activeConns[userId] = ch
-				cm.chatroomIndex[chatId].subCh <- ch
+				cm.chatroomIndex[chatIdx].subCh <- ch
 				return
 			}
 			ch.conn.Write([]byte(fmt.Sprintf("\nChat '%s' not found, please try again: ", msg)))
@@ -98,16 +105,20 @@ func (cm *ChatroomManager) MoveExistingConnect(userId int) {
 	for {
 		msg = ch.readFromConnOnce()
 		if msg != "" {
-			msg = msg[:len(msg)-2] // Remove newline
-			if doesExist, chatId := cm.DoesChatroomExist(msg); doesExist {
-				chatroomName := cm.chatroomIndex[chatId].ChatroomName
+			if msg == "$exit" {
+				ch.conn.Write([]byte("\nThanks for coming!\n"))
+				delete(cm.activeConns, userId)
+				ch.conn.Close()
+				return
+			}
+			chatIdx, err := strconv.Atoi(msg) // Remove newline
+			if err == nil && cm.DoesChatroomExist(chatIdx) {
+				chatroomName := cm.chatroomIndex[chatIdx].ChatroomName
 				log.Println("Changing to chat:", chatroomName)
 				ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", chatroomName)))
 				ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, chatroomName)))
 				go ch.resumeReadFromConnLoop()
-				log.Println("WRITING TO SUBCH-", chatroomName)
-				cm.chatroomIndex[chatId].subCh <- ch
-				log.Println("DONE HANDLING EXISTING CONN")
+				cm.chatroomIndex[chatIdx].subCh <- ch
 				return
 			}
 			ch.conn.Write([]byte(fmt.Sprintf("\nChat '%s' not found, please try again: ", msg)))
@@ -121,7 +132,7 @@ func (cm *ChatroomManager) AddNewChatroom(chatroomName string, chatId int) error
 	if _, ok := cm.chatroomIndex[chatId]; ok {
 		return errors.New("chatroom already exists")
 	}
-	cm.chatroomIndex[chatId] = NewChatroomBroker(chatroomName, chatId, cm.quitCh, cm.subCh)
+	cm.chatroomIndex[chatId] = NewChatroomBroker(chatroomName, chatId, cm.quitCh)
 	// TODO: How can I launch a new chatroom? cant just goroutine here because function will exit
 	//		Maybe goroutine waiting on NewChatCh...
 	//			When it receives *ChatroomBroker,
@@ -131,17 +142,13 @@ func (cm *ChatroomManager) AddNewChatroom(chatroomName string, chatId int) error
 func (cm *ChatroomManager) ReadAllChatrooms() string {
 	reportString := "\n# Available chats:\n[\n"
 	for _, chatroom := range cm.chatroomIndex {
-		reportString += fmt.Sprintf("  -> %s\n", chatroom.ChatroomName)
+		reportString += fmt.Sprintf("  -> [%d] %s\n", chatroom.ChatId, chatroom.ChatroomName)
 	}
 	reportString += "]\n"
 	return reportString
 }
 
-func (cm *ChatroomManager) DoesChatroomExist(chatName string) (bool, int) {
-	for chatId, chatroom := range cm.chatroomIndex {
-		if chatroom.ChatroomName == chatName {
-			return true, chatId
-		}
-	}
-	return false, -1
+func (cm *ChatroomManager) DoesChatroomExist(chatId int) bool {
+	_, ok := cm.chatroomIndex[chatId]
+	return ok
 }
