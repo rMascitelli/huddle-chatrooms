@@ -20,6 +20,8 @@ func DebugPrint(s string) {
 	}
 }
 
+var gChatroomIndex ChatroomIndex
+
 type TCPServer struct {
 	listenAddr  string
 	ln          net.Listener
@@ -87,6 +89,9 @@ func (t *TCPServer) acceptLoop() {
 }
 
 func main() {
+	// Init our global chatroom Index
+	gChatroomIndex = NewChatroomIndex()
+
 	t := NewTCPServer(":8080")
 	t.Start()
 }

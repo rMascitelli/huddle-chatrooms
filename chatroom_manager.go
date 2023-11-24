@@ -62,6 +62,8 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 	userId := rand.Intn(1000)
 	ch := NewConnHandler(userId, conn, cm.wg, cm.unsubCh, cm.quitCh)
 	conn.Write([]byte(fmt.Sprintf(LOGIN_PROMPT, userId)))
+	conn.Write([]byte(gChatroomIndex.ReadAllChatrooms()))
+	conn.Write([]byte("Which chatroom would you like? "))
 	msg := ch.readFromConnOnce()
 	msg = msg[:len(msg)-2] // Remove newline
 	log.Println("Changing to chat:", msg)
@@ -73,6 +75,7 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 
 func (cm *ChatroomManager) MoveExistingConnect(userId int) {
 	ch := cm.activeConns[userId]
+	ch.conn.Write([]byte(gChatroomIndex.ReadAllChatrooms()))
 	ch.conn.Write([]byte("Which chatroom to change to? "))
 	msg := ch.readFromConnOnce()
 	msg = msg[:len(msg)-2] // Remove newline

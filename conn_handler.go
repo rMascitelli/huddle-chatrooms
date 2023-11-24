@@ -14,7 +14,7 @@ const (
 		"# Welcome to Chatroom Server\n" +
 		"# Logged in as: User%d\n" +
 		"#\n" +
-		"##########\n\nWhich chatroom would you like? "
+		"##########\n"
 	CHATROOM_ENTER_PROMPT = "\n->\n" +
 		"-> Welcome to Chat%d\n" +
 		"->\n> "
