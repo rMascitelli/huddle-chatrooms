@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -15,7 +14,10 @@ const (
 		"# Welcome to Chatroom Server\n" +
 		"# Logged in as: User%d\n" +
 		"#\n" +
-		"##########\n\n> "
+		"##########\n\nWhich chatroom would you like? "
+	CHATROOM_ENTER_PROMPT = "\n->\n" +
+		"-> Welcome to Chat%d\n" +
+		"->\n> "
 )
 
 type ChatMessage struct {
@@ -78,22 +80,33 @@ func (c *ConnHandler) startHandlingConn() {
 	}
 }
 
-func (c *ConnHandler) readFromConnOnce() (string, error) {
-	buf := make([]byte, 2048)
-	n, err := c.conn.Read(buf)
-	if err != nil {
-		log.Println("Error during Read - ", err)
-		return "", err
-	}
-	msg := string(buf[:n])
+func (c *ConnHandler) readFromConnOnce() string {
+	readCh := make(chan string)
+	go func(readCh chan string) {
+		buf := make([]byte, 2048)
+		for {
+			n, err := c.conn.Read(buf)
+			if err != nil {
+				log.Println("Error during Read - ", err)
+				return
+			}
+			msg := string(buf[:n])
+			if len(msg) <= 2 {
+				c.conn.Write([]byte("\nInvalid input, please try again: "))
+				continue
+			} else {
+				readCh <- msg
+				return
+			}
 
-	// Don't spam new lines
-	// TODO: This should be handled by the client, dont send messages unnecessarily
-	if len(msg) <= 2 {
-		return "", errors.New("Empty string rcvd")
-	} else {
-		log.Println("readOnce msg:", msg)
-		return msg, nil
+		}
+	}(readCh)
+
+	select {
+	case msg := <-readCh:
+		return msg
+	case <-c.QuitCh:
+		return ""
 	}
 }
 

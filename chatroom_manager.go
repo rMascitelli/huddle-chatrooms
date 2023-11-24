@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -20,6 +19,12 @@ type ChatroomManager struct {
 	wg     *sync.WaitGroup
 
 	// some DB-related stuff to save and load chats
+}
+
+type UnsubEvent struct {
+	userId   int
+	curChat  int
+	destChat int
 }
 
 func NewChatroomManager(quitCh chan struct{}, wg *sync.WaitGroup) ChatroomManager {
@@ -53,48 +58,40 @@ func (cm *ChatroomManager) ListenForRequests() {
 	}
 }
 
-// TODO: Bug exists where server cannot stop while user is HandleNewConnect
-// Could fix this by having ANOTHER (anonymous) channel to use here, launch a goroutine to listen to conn
-//
-//	If a selection is made from user, subscribe to channel
-//	If quitCh is called, just return
-//		(Make sure to cleanup goroutine)
 func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
-	readErr := errors.New("")
-	var msg string
 	userId := rand.Intn(1000)
 	ch := NewConnHandler(userId, conn, cm.wg, cm.unsubCh, cm.quitCh)
 	conn.Write([]byte(fmt.Sprintf(LOGIN_PROMPT, userId)))
-	conn.Write([]byte("\nWhich chatroom would you like? "))
-	for readErr != nil {
-		msg, readErr = ch.readFromConnOnce()
-		if readErr != nil {
-			log.Println("Err reading:", readErr)
-		}
-	}
+	msg := ch.readFromConnOnce()
+	msg = msg[:len(msg)-2] // Remove newline
 	log.Println("Changing to chat:", msg)
-	ch.conn.Write([]byte("\n> "))
+	ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
+	ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
 	cm.activeConns[userId] = ch
 	cm.chatroom.subCh <- ch
 }
 
 func (cm *ChatroomManager) MoveExistingConnect(userId int) {
-	readErr := errors.New("")
-	var msg string
 	ch := cm.activeConns[userId]
 	ch.conn.Write([]byte("Which chatroom to change to? "))
-	for readErr != nil {
-		msg, readErr = ch.readFromConnOnce()
-		if readErr != nil {
-			log.Println("Err reading:", readErr)
-			ch.conn.Write([]byte("\nInvalid input, please try again: "))
-		}
-	}
+	msg := ch.readFromConnOnce()
+	msg = msg[:len(msg)-2] // Remove newline
 	log.Println("Changing to chat:", msg)
+	ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
+	ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
 	go ch.resumeReadFromConnLoop()
-	ch.conn.Write([]byte("\n> "))
 
 	// TODO: Change cm.chatroom to be array of chatrooms
 	//		Allow user to choose chatroom
 	cm.chatroom.subCh <- ch
+
+	//var gChatroomIndex map[string]struct{}
+	//chatFound := false
+	//for !chatFound {
+	//	if _, ok := gChatroomIndex[msg]; ok {
+	//		chatFound = true
+	//	} else {
+	//		msg = ch.readFromConnOnce()
+	//	}
+	//}
 }
