@@ -6,12 +6,11 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 )
 
 const (
-	DEBUG_MODE = true
+	DEBUG_MODE = false
 )
 
 func DebugPrint(s string) {
@@ -19,8 +18,6 @@ func DebugPrint(s string) {
 		fmt.Println(s)
 	}
 }
-
-var gChatroomIndex ChatroomIndex
 
 type TCPServer struct {
 	listenAddr  string
@@ -30,22 +27,19 @@ type TCPServer struct {
 	quitCh      chan struct{}
 	subCh       chan net.Conn // Accept ConnHandler to add to subs
 	unsubCh     chan int      // Accept ConnHandler to del from subs
-	wg          *sync.WaitGroup
 }
 
 func NewTCPServer(listenAddr string) *TCPServer {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	wg := sync.WaitGroup{}
 	tcp := &TCPServer{
 		listenAddr: listenAddr,
 		sigCh:      sigCh,
 		quitCh:     make(chan struct{}),
 		subCh:      make(chan net.Conn),
 		unsubCh:    make(chan int),
-		wg:         &wg,
 	}
-	tcp.chatroomMgr = NewChatroomManager(tcp.quitCh, tcp.wg)
+	tcp.chatroomMgr = NewChatroomManager(tcp.quitCh)
 	return tcp
 }
 
@@ -57,17 +51,20 @@ func (t *TCPServer) Start() {
 	t.ln = ln
 	defer ln.Close()
 
-	// Start accepting and serving connections
+	// Start all chatrooms and chatroomMgr
+	for _, chatroom := range t.chatroomMgr.chatroomIndex {
+		go chatroom.Start()
+	}
 	go t.chatroomMgr.ListenForRequests()
-	go t.chatroomMgr.chatroom.Start() // TODO: This would be a loop to start all chatrooms
+
+	// Start accepting and serving connections
 	go t.acceptLoop()
 	log.Println("Server listening at", t.listenAddr)
 
-	// Wait for cancel signal, close listener, and wait for goroutines to finish
+	// Wait for cancel signal, close listener
 	<-t.sigCh
 	close(t.quitCh)
-	t.wg.Wait()
-	log.Println("all goroutines complete!")
+	log.Println("Shutting down TCP server!")
 }
 
 func (t *TCPServer) acceptLoop() {
@@ -89,9 +86,6 @@ func (t *TCPServer) acceptLoop() {
 }
 
 func main() {
-	// Init our global chatroom Index
-	gChatroomIndex = NewChatroomIndex()
-
 	t := NewTCPServer(":8080")
 	t.Start()
 }

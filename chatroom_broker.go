@@ -3,26 +3,28 @@ package main
 import (
 	"fmt"
 	"log"
-	"sync"
 )
 
 // PubSub manager, to receive and broadcast messages to one chatroom
 type ChatroomBroker struct {
-	publishCh chan ChatMessage  // Rx messages from all connHandlers
-	subCh     chan *ConnHandler // Rx from ChatroomMgr about new subscriber
-	subs      map[int]*ConnHandler
+	ChatroomName string
+	ChatId       int
+	publishCh    chan ChatMessage  // Rx messages from all connHandlers
+	subCh        chan *ConnHandler // Rx from ChatroomMgr about new subscriber
+	subs         map[int]*ConnHandler
 
-	wg     *sync.WaitGroup
 	quitCh chan struct{}
 }
 
-func NewChatroomBroker(quitCh chan struct{}, subCh chan *ConnHandler, wg *sync.WaitGroup) *ChatroomBroker {
+func NewChatroomBroker(chatroomName string, chatId int, quitCh chan struct{}, subCh chan *ConnHandler) *ChatroomBroker {
+	DebugPrint(fmt.Sprintf("NewChatroomBroker: Creating chat %s:%d\n", chatroomName, chatId))
 	return &ChatroomBroker{
-		publishCh: make(chan ChatMessage),
-		quitCh:    quitCh,
-		subs:      make(map[int]*ConnHandler),
-		wg:        wg,
-		subCh:     subCh,
+		ChatroomName: chatroomName,
+		ChatId:       chatId,
+		publishCh:    make(chan ChatMessage),
+		quitCh:       quitCh,
+		subs:         make(map[int]*ConnHandler),
+		subCh:        subCh,
 	}
 }
 
@@ -35,7 +37,7 @@ func (cb *ChatroomBroker) PrintSubs() {
 }
 
 func (cb *ChatroomBroker) Start() {
-	log.Println("ChatroomBroker starting...")
+	DebugPrint(fmt.Sprintf("Chat '%s:%d' starting...\n", cb.ChatroomName, cb.ChatId))
 	for {
 		select {
 		case msg := <-cb.publishCh:
@@ -45,6 +47,7 @@ func (cb *ChatroomBroker) Start() {
 				sub.MsgCh <- msg
 			}
 		case ch := <-cb.subCh:
+			log.Printf("CB%s rcvd sub request\n", cb.ChatroomName)
 			ch.PublishCh = cb.publishCh
 			go ch.startHandlingConn()
 			log.Printf("User%d joined the Chatroom\n", ch.UserId)

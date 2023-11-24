@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"sync"
 )
 
 const (
@@ -16,7 +15,7 @@ const (
 		"#\n" +
 		"##########\n"
 	CHATROOM_ENTER_PROMPT = "\n->\n" +
-		"-> Welcome to Chat%d\n" +
+		"-> Welcome to Chat%s\n" +
 		"->\n> "
 )
 
@@ -31,18 +30,16 @@ type ConnHandler struct {
 	UserId               int
 	hasBeenStartedBefore bool // Because we handle the readFromConnLoop differently after starting it once
 	conn                 net.Conn
-	wg                   *sync.WaitGroup
 	MsgCh                chan ChatMessage // Read incoming published messages from ChatroomManager
 	PublishCh            chan ChatMessage // Publish messages to all subs of ChatroomManager
 	UnsubCh              chan int         // To tell ChatroomManager to unsub us from chatroom
 	QuitCh               chan struct{}
 }
 
-func NewConnHandler(userid int, conn net.Conn, wg *sync.WaitGroup, unsubCh chan int, quitCh chan struct{}) *ConnHandler {
+func NewConnHandler(userid int, conn net.Conn, unsubCh chan int, quitCh chan struct{}) *ConnHandler {
 	return &ConnHandler{
 		UserId:  userid,
 		conn:    conn,
-		wg:      wg,
 		MsgCh:   make(chan ChatMessage),
 		UnsubCh: unsubCh,
 		QuitCh:  quitCh,
@@ -52,13 +49,12 @@ func NewConnHandler(userid int, conn net.Conn, wg *sync.WaitGroup, unsubCh chan 
 func (c *ConnHandler) startHandlingConn() {
 	log.Printf("New connHandler for User%d\n", c.UserId)
 	if !c.hasBeenStartedBefore {
-		log.Printf("User%d has NOT been started before, starting first goroutine\n", c.UserId)
+		DebugPrint(fmt.Sprintf("%d NOT been started before\n", c.UserId))
 		go c.readFromConnLoop()
 		c.hasBeenStartedBefore = true
 	} else {
-		log.Printf("User%d has been started before, wont start another goroutine\n", c.UserId)
+		DebugPrint(fmt.Sprintf("%d HAS been started before\n", c.UserId))
 	}
-	c.wg.Add(1)
 	var msg ChatMessage
 	var formattedMsg string
 	for {
@@ -74,7 +70,6 @@ func (c *ConnHandler) startHandlingConn() {
 
 		case <-c.QuitCh:
 			log.Printf("closing connHandler%d\n", c.UserId)
-			c.wg.Done()
 			return
 		}
 	}
@@ -120,7 +115,7 @@ func (c *ConnHandler) readFromConnLoop() {
 	log.Printf("readFromConn%d start\n", c.UserId)
 	buf := make([]byte, 2048)
 	stayActive := true
-	for stayActive == true {
+	for stayActive {
 		n, err := c.conn.Read(buf)
 		if err != nil {
 			log.Println("Error during Read - ", err)
