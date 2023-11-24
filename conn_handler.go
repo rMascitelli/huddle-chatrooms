@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 )
 
 const (
 	LOGIN_PROMPT = "\n##########\n" +
 		"#\n" +
-		"# Welcome to HuddleChats\n" +
+		"# Welcome to Chatroom Server\n" +
+		"# Logged in as: User%d\n" +
 		"#\n" +
 		"##########\n\n> "
-	PROMPT = "> "
 )
 
 type ChatMessage struct {
@@ -24,27 +25,30 @@ type ChatMessage struct {
 // A struct to handle the operations for each incoming Conn
 // Conn is per-user
 type ConnHandler struct {
-	Userid    int
-	conn      net.Conn
-	wg        *sync.WaitGroup
-	MsgCh     chan ChatMessage // Read incoming published messages from ChatroomManager
-	PublishCh chan ChatMessage // Publish messages to all subs of ChatroomManager
-	QuitCh    chan struct{}
+	UserId          int
+	conn            net.Conn
+	wg              *sync.WaitGroup
+	MsgCh           chan ChatMessage // Read incoming published messages from ChatroomManager
+	PublishCh       chan ChatMessage // Publish messages to all subs of ChatroomManager
+	UnsubCh         chan int         // To tell ChatroomManager to unsub us from chatroom
+	InternalUnsubCh chan struct{}    // To stop handling Conn
+	QuitCh          chan struct{}
 }
 
-func NewConnHandler(userid int, conn net.Conn, wg *sync.WaitGroup, publishCh chan ChatMessage, quitCh chan struct{}) *ConnHandler {
+func NewConnHandler(userid int, conn net.Conn, wg *sync.WaitGroup, unsubCh chan int, quitCh chan struct{}) *ConnHandler {
 	return &ConnHandler{
-		Userid:    userid,
-		conn:      conn,
-		wg:        wg,
-		MsgCh:     make(chan ChatMessage),
-		PublishCh: publishCh,
-		QuitCh:    quitCh,
+		UserId:          userid,
+		conn:            conn,
+		wg:              wg,
+		MsgCh:           make(chan ChatMessage),
+		InternalUnsubCh: make(chan struct{}),
+		UnsubCh:         unsubCh,
+		QuitCh:          quitCh,
 	}
 }
 
 func (c *ConnHandler) startHandlingConn() {
-	log.Printf("New connHandler for User%d\n", c.Userid)
+	log.Printf("New connHandler for User%d\n", c.UserId)
 	go c.readFromConnLoop(c.conn)
 	c.wg.Add(1)
 	var msg ChatMessage
@@ -52,8 +56,8 @@ func (c *ConnHandler) startHandlingConn() {
 	for {
 		select {
 		case msg = <-c.MsgCh:
-			if c.Userid != msg.UserId {
-				DebugPrint(fmt.Sprintf("  %d rcvd '%s'", c.Userid, msg.Payload))
+			if c.UserId != msg.UserId {
+				DebugPrint(fmt.Sprintf("  %d rcvd '%s'", c.UserId, msg.Payload))
 				formattedMsg = fmt.Sprintf("\n[%d]: %s\n> ", msg.UserId, msg.Payload)
 			} else {
 				formattedMsg = "> "
@@ -81,10 +85,18 @@ func (c *ConnHandler) readFromConnLoop(conn net.Conn) {
 		msg := string(buf[:n])
 
 		// Don't spam new lines
+		// TODO: This should be handled by the client, dont send messages unnecessarily
 		if len(msg) > 2 {
-			c.PublishCh <- ChatMessage{
-				UserId:  c.Userid,
-				Payload: msg[:len(msg)-2],
+			if strings.HasPrefix(msg, "$exit") {
+				c.PublishCh = nil // Stop reads from being published
+				c.UnsubCh <- c.UserId
+			} else {
+				if c.PublishCh != nil {
+					c.PublishCh <- ChatMessage{
+						UserId:  c.UserId,
+						Payload: msg[:len(msg)-2],
+					}
+				}
 			}
 		}
 	}

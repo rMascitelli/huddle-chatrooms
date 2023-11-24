@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DEBUG_MODE = false
+	DEBUG_MODE = true
 )
 
 func DebugPrint(s string) {
@@ -21,20 +21,14 @@ func DebugPrint(s string) {
 }
 
 type TCPServer struct {
-	listenAddr     string
-	ln             net.Listener
-	chatroomBroker ChatroomBroker
-	sigCh          chan os.Signal // For main server to accept SIGTERM
-	quitCh         chan struct{}
-	subCh          chan net.Conn // Accept ConnHandler to add to subs
-	unsubCh        chan int      // Accept ConnHandler to del from subs
-	wg             *sync.WaitGroup
-}
-
-type ChatroomManager struct {
-	chatrooms []ChatroomBroker
-	subCh     chan int // Channel for receiving chatroom join requests
-	// some DB-related stuff to save and load chats
+	listenAddr  string
+	ln          net.Listener
+	chatroomMgr ChatroomManager
+	sigCh       chan os.Signal // For main server to accept SIGTERM
+	quitCh      chan struct{}
+	subCh       chan net.Conn // Accept ConnHandler to add to subs
+	unsubCh     chan int      // Accept ConnHandler to del from subs
+	wg          *sync.WaitGroup
 }
 
 func NewTCPServer(listenAddr string) *TCPServer {
@@ -49,7 +43,7 @@ func NewTCPServer(listenAddr string) *TCPServer {
 		unsubCh:    make(chan int),
 		wg:         &wg,
 	}
-	tcp.chatroomBroker = *NewChatroomBroker(tcp.quitCh, tcp.subCh, tcp.unsubCh, tcp.wg)
+	tcp.chatroomMgr = NewChatroomManager(tcp.quitCh, tcp.wg)
 	return tcp
 }
 
@@ -62,7 +56,8 @@ func (t *TCPServer) Start() {
 	defer ln.Close()
 
 	// Start accepting and serving connections
-	go t.chatroomBroker.Start()
+	go t.chatroomMgr.ListenForRequests()
+	go t.chatroomMgr.chatroom.Start() // TODO: This would be a loop to start all chatrooms
 	go t.acceptLoop()
 	log.Println("Server listening at", t.listenAddr)
 
@@ -87,7 +82,7 @@ func (t *TCPServer) acceptLoop() {
 		}
 		log.Println("New conn from", conn.RemoteAddr())
 
-		t.subCh <- conn
+		t.chatroomMgr.newConnCh <- conn
 	}
 }
 

@@ -3,37 +3,33 @@ package main
 import (
 	"fmt"
 	"log"
-	"math/rand"
-	"net"
 	"sync"
 )
 
 // PubSub manager, to receive and broadcast messages to one chatroom
 type ChatroomBroker struct {
-	publishCh chan ChatMessage     // Mutual ch to receive messages from ConnHandlers
-	quitCh    chan struct{}        // Mutual ch to listen for close()
-	subs      map[int]*ConnHandler // Keeping record of ConnHandlers
-	wg        *sync.WaitGroup
+	publishCh chan ChatMessage // Rx messages from all connHandlers
+	subCh     chan ConnHandler // Rx from ChatroomMgr about new subscriber
+	subs      map[int]*ConnHandler
 
-	subCh   chan net.Conn // Use conn to create a ConnHandler and add to subsmap
-	unsubCh chan int      // Use Userid to find and delete sub from submap
+	wg     *sync.WaitGroup
+	quitCh chan struct{}
 }
 
-func NewChatroomBroker(quitCh chan struct{}, subCh chan net.Conn, unsubCh chan int, wg *sync.WaitGroup) *ChatroomBroker {
+func NewChatroomBroker(quitCh chan struct{}, subCh chan ConnHandler, wg *sync.WaitGroup) *ChatroomBroker {
 	return &ChatroomBroker{
 		publishCh: make(chan ChatMessage),
 		quitCh:    quitCh,
 		subs:      make(map[int]*ConnHandler),
 		wg:        wg,
 		subCh:     subCh,
-		unsubCh:   unsubCh,
 	}
 }
 
 func (cb *ChatroomBroker) PrintSubs() {
 	fmt.Printf("[")
 	for _, c := range cb.subs {
-		fmt.Printf("%d, ", c.Userid)
+		fmt.Printf("%d, ", c.UserId)
 	}
 	fmt.Printf("]\n")
 }
@@ -45,16 +41,20 @@ func (cb *ChatroomBroker) Start() {
 		case msg := <-cb.publishCh:
 			// Broadcast msg to all subs
 			for _, sub := range cb.subs {
-				DebugPrint(fmt.Sprintf("%v to %d", msg.Payload, sub.Userid))
+				DebugPrint(fmt.Sprintf("%v to %d", msg.Payload, sub.UserId))
 				sub.MsgCh <- msg
 			}
-		case conn := <-cb.subCh:
-			userId := rand.Intn(1000)
-			ch := NewConnHandler(userId, conn, cb.wg, cb.publishCh, cb.quitCh)
+		case ch := <-cb.subCh:
+			ch.PublishCh = cb.publishCh
 			go ch.startHandlingConn()
-			log.Printf("User%d joined the Chatroom\n", userId)
-			cb.subs[userId] = ch
+			log.Printf("User%d joined the Chatroom\n", ch.UserId)
+			cb.subs[ch.UserId] = &ch
 			cb.PrintSubs()
 		}
 	}
+}
+
+func (cb *ChatroomBroker) Unsubscribe(userId int) {
+	fmt.Println("Deleting user", userId)
+	delete(cb.subs, userId)
 }
