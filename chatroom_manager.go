@@ -65,12 +65,14 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 	conn.Write([]byte(gChatroomIndex.ReadAllChatrooms()))
 	conn.Write([]byte("Which chatroom would you like? "))
 	msg := ch.readFromConnOnce()
-	msg = msg[:len(msg)-2] // Remove newline
-	log.Println("Changing to chat:", msg)
-	ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
-	ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
-	cm.activeConns[userId] = ch
-	cm.chatroom.subCh <- ch
+	if msg != "" {
+		msg = msg[:len(msg)-2] // Remove newline
+		log.Println("Changing to chat:", msg)
+		ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
+		ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
+		cm.activeConns[userId] = ch
+		cm.chatroom.subCh <- ch
+	}
 }
 
 func (cm *ChatroomManager) MoveExistingConnect(userId int) {
@@ -78,15 +80,17 @@ func (cm *ChatroomManager) MoveExistingConnect(userId int) {
 	ch.conn.Write([]byte(gChatroomIndex.ReadAllChatrooms()))
 	ch.conn.Write([]byte("Which chatroom to change to? "))
 	msg := ch.readFromConnOnce()
-	msg = msg[:len(msg)-2] // Remove newline
-	log.Println("Changing to chat:", msg)
-	ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
-	ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
-	go ch.resumeReadFromConnLoop()
+	if msg != "" {
+		msg = msg[:len(msg)-2] // Remove newline
+		log.Println("Changing to chat:", msg)
+		ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", msg)))
+		ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, 0)))
+		go ch.resumeReadFromConnLoop()
 
-	// TODO: Change cm.chatroom to be array of chatrooms
-	//		Allow user to choose chatroom
-	cm.chatroom.subCh <- ch
+		// TODO: Change cm.chatroom to be array of chatrooms
+		//		Allow user to choose chatroom
+		cm.chatroom.subCh <- ch
+	}
 
 	//var gChatroomIndex map[string]struct{}
 	//chatFound := false
