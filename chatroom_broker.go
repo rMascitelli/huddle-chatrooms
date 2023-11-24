@@ -46,9 +46,7 @@ func (cb *ChatroomBroker) Start() {
 			// Broadcast msg to all subs
 			for _, sub := range cb.subs {
 				DebugPrint(fmt.Sprintf("%v to %d", msg.Payload, sub.Userid))
-				if sub.Userid != msg.UserId {
-					sub.MsgCh <- msg
-				}
+				sub.MsgCh <- msg
 			}
 		case conn := <-cb.subCh:
 			userId := rand.Intn(1000)

@@ -48,13 +48,17 @@ func (c *ConnHandler) startHandlingConn() {
 	go c.readFromConnLoop(c.conn)
 	c.wg.Add(1)
 	var msg ChatMessage
-
+	var formattedMsg string
 	for {
 		select {
 		case msg = <-c.MsgCh:
-			DebugPrint(fmt.Sprintf("  %d rcvd '%s'", c.Userid, msg.Payload))
-			formatted_msg := fmt.Sprintf("[%d]: %s\n", msg.UserId, msg.Payload)
-			c.conn.Write([]byte(formatted_msg))
+			if c.Userid != msg.UserId {
+				DebugPrint(fmt.Sprintf("  %d rcvd '%s'", c.Userid, msg.Payload))
+				formattedMsg = fmt.Sprintf("\n[%d]: %s\n> ", msg.UserId, msg.Payload)
+			} else {
+				formattedMsg = "> "
+			}
+			c.conn.Write([]byte(formattedMsg))
 
 		case <-c.QuitCh:
 			log.Println("closing connHandler")
