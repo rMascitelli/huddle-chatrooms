@@ -15,7 +15,7 @@ const (
 		"#\n" +
 		"##########\n"
 	CHATROOM_ENTER_PROMPT = "\n->\n" +
-		"-> Welcome to Chat%s\n" +
+		"-> Welcome to Chat '%s'\n" +
 		"->\n> "
 )
 
@@ -28,21 +28,23 @@ type ChatMessage struct {
 // Conn is per-user
 type ConnHandler struct {
 	UserId               int
+	ActiveChatId         int
 	hasBeenStartedBefore bool // Because we handle the readFromConnLoop differently after starting it once
 	conn                 net.Conn
 	MsgCh                chan ChatMessage // Read incoming published messages from ChatroomManager
 	PublishCh            chan ChatMessage // Publish messages to all subs of ChatroomManager
-	UnsubCh              chan int         // To tell ChatroomManager to unsub us from chatroom
+	UnsubCh              chan UnsubEvent  // To tell ChatroomManager to unsub us from chatroom
 	QuitCh               chan struct{}
 }
 
-func NewConnHandler(userid int, conn net.Conn, unsubCh chan int, quitCh chan struct{}) *ConnHandler {
+func NewConnHandler(userid int, conn net.Conn, unsubCh chan UnsubEvent, quitCh chan struct{}) *ConnHandler {
 	return &ConnHandler{
-		UserId:  userid,
-		conn:    conn,
-		MsgCh:   make(chan ChatMessage),
-		UnsubCh: unsubCh,
-		QuitCh:  quitCh,
+		UserId:       userid,
+		ActiveChatId: -1,
+		conn:         conn,
+		MsgCh:        make(chan ChatMessage),
+		UnsubCh:      unsubCh,
+		QuitCh:       quitCh,
 	}
 }
 
@@ -78,7 +80,6 @@ func (c *ConnHandler) startHandlingConn() {
 func (c *ConnHandler) readFromConnOnce() string {
 	readCh := make(chan string)
 	go func(readCh chan string) {
-		log.Println("ANONYMOUS FUNC")
 		buf := make([]byte, 2048)
 		for {
 			n, err := c.conn.Read(buf)
@@ -129,7 +130,11 @@ func (c *ConnHandler) readFromConnLoop() {
 		if len(msg) > 2 {
 			if strings.HasPrefix(msg, "$exit") {
 				c.PublishCh = nil // Stop reads from being published
-				c.UnsubCh <- c.UserId
+				c.UnsubCh <- UnsubEvent{
+					UserId: c.UserId,
+					ChatId: c.ActiveChatId,
+				}
+				c.ActiveChatId = -1 // Set ActiveChatId to default as soon as we send the unsub event
 				stayActive = false
 			} else {
 				if c.PublishCh != nil {
@@ -141,5 +146,5 @@ func (c *ConnHandler) readFromConnLoop() {
 			}
 		}
 	}
-	log.Printf("readFromConn%d stopped\n", c.UserId)
+	log.Printf("readFromConnLoop(%d) stopped\n", c.UserId)
 }

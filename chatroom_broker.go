@@ -48,8 +48,9 @@ func (cb *ChatroomBroker) Start() {
 			}
 		case ch := <-cb.subCh:
 			ch.PublishCh = cb.publishCh
+			ch.ActiveChatId = cb.ChatId
 			go ch.startHandlingConn()
-			log.Printf("User%d joined Chatroom%s\n", ch.UserId, cb.ChatroomName)
+			log.Printf("User%d joined Chat '%s'\n", ch.UserId, cb.ChatroomName)
 			cb.subs[ch.UserId] = ch
 			cb.PrintSubs()
 		}

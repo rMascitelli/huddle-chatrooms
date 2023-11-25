@@ -10,10 +10,9 @@ import (
 )
 
 type ChatroomManager struct {
-	chatroom      ChatroomBroker
 	chatroomIndex map[int]*ChatroomBroker
 	subCh         chan *ConnHandler // Tx to chatroom about new subscriber
-	unsubCh       chan int          // Rx from connHandler telling us to unsubscribe from chat
+	unsubCh       chan UnsubEvent   // Rx from connHandler telling us to unsubscribe from chat
 	newConnCh     chan net.Conn     // Rx from TCP Server telling us of new Conns
 	activeConns   map[int]*ConnHandler
 
@@ -23,16 +22,15 @@ type ChatroomManager struct {
 }
 
 type UnsubEvent struct {
-	userId   int
-	curChat  int
-	destChat int
+	UserId int
+	ChatId int
 }
 
 func NewChatroomManager(quitCh chan struct{}) ChatroomManager {
 	cm := ChatroomManager{
 		quitCh:        quitCh,
 		subCh:         make(chan *ConnHandler),
-		unsubCh:       make(chan int),
+		unsubCh:       make(chan UnsubEvent),
 		activeConns:   make(map[int]*ConnHandler),
 		newConnCh:     make(chan net.Conn),
 		chatroomIndex: make(map[int]*ChatroomBroker),
@@ -48,15 +46,16 @@ func (cm *ChatroomManager) createDefaultChatrooms() {
 	cm.chatroomIndex[4] = NewChatroomBroker("SpookyMonsterChat", 4, cm.quitCh)
 }
 
-func (cm *ChatroomManager) ListenForRequests() {
+func (cm *ChatroomManager) listenForRequests() {
 	log.Println("ChatroomMgr listening for Requests...")
 	for {
 		select {
 		case conn := <-cm.newConnCh:
-			cm.HandleNewConnect(conn)
-		case userId := <-cm.unsubCh:
-			cm.chatroom.Unsubscribe(userId)
-			cm.MoveExistingConnect(userId)
+			cm.HandleNewConnectPrompt(conn)
+		case unsubEvent := <-cm.unsubCh:
+			log.Printf("User%d left chat '%s'\n", unsubEvent.UserId, cm.chatroomIndex[unsubEvent.ChatId].ChatroomName)
+			delete(cm.chatroomIndex[unsubEvent.ChatId].subs, unsubEvent.UserId)
+			cm.MoveExistingConnectPrompt(unsubEvent.UserId)
 		case <-cm.quitCh:
 			log.Println("ChatroomMgr shutting down...")
 			return
@@ -64,7 +63,16 @@ func (cm *ChatroomManager) ListenForRequests() {
 	}
 }
 
-func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
+func (cm *ChatroomManager) startNewChatroomLoop() {
+	for {
+		select {
+		case <-cm.quitCh:
+			return
+		}
+	}
+}
+
+func (cm *ChatroomManager) HandleNewConnectPrompt(conn net.Conn) {
 	userId := rand.Intn(1000)
 	ch := NewConnHandler(userId, conn, cm.unsubCh, cm.quitCh)
 	conn.Write([]byte(fmt.Sprintf(LOGIN_PROMPT, userId)))
@@ -80,14 +88,14 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 				ch.conn.Close()
 				return
 			}
-			chatIdx, err := strconv.Atoi(msg)
-			if err == nil && cm.DoesChatroomExist(chatIdx) {
-				chatroomName := cm.chatroomIndex[chatIdx].ChatroomName
-				log.Println("Changing to chat:", chatroomName)
+			chosenChatId, err := strconv.Atoi(msg)
+			if err == nil && cm.DoesChatroomExist(chosenChatId) {
+				chatroomName := cm.chatroomIndex[chosenChatId].ChatroomName
+				log.Printf("User%d changing to chat: %s\n", ch.UserId, chatroomName)
 				ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", chatroomName)))
 				ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, chatroomName)))
 				cm.activeConns[userId] = ch
-				cm.chatroomIndex[chatIdx].subCh <- ch
+				cm.chatroomIndex[chosenChatId].subCh <- ch
 				return
 			}
 			ch.conn.Write([]byte(fmt.Sprintf("\nChat '%s' not found, please try again: ", msg)))
@@ -97,7 +105,7 @@ func (cm *ChatroomManager) HandleNewConnect(conn net.Conn) {
 	}
 }
 
-func (cm *ChatroomManager) MoveExistingConnect(userId int) {
+func (cm *ChatroomManager) MoveExistingConnectPrompt(userId int) {
 	ch := cm.activeConns[userId]
 	ch.conn.Write([]byte(cm.ReadAllChatrooms()))
 	ch.conn.Write([]byte("Which chatroom to change to? "))
@@ -111,14 +119,14 @@ func (cm *ChatroomManager) MoveExistingConnect(userId int) {
 				ch.conn.Close()
 				return
 			}
-			chatIdx, err := strconv.Atoi(msg) // Remove newline
-			if err == nil && cm.DoesChatroomExist(chatIdx) {
-				chatroomName := cm.chatroomIndex[chatIdx].ChatroomName
-				log.Println("Changing to chat:", chatroomName)
+			chosenChatId, err := strconv.Atoi(msg) // Remove newline
+			if err == nil && cm.DoesChatroomExist(chosenChatId) {
+				chatroomName := cm.chatroomIndex[chosenChatId].ChatroomName
+				log.Printf("User%d changing to chat: %s\n", ch.UserId, chatroomName)
 				ch.conn.Write([]byte(fmt.Sprintf("Changing to chat '%s'...\n", chatroomName)))
 				ch.conn.Write([]byte(fmt.Sprintf(CHATROOM_ENTER_PROMPT, chatroomName)))
 				go ch.resumeReadFromConnLoop()
-				cm.chatroomIndex[chatIdx].subCh <- ch
+				cm.chatroomIndex[chosenChatId].subCh <- ch
 				return
 			}
 			ch.conn.Write([]byte(fmt.Sprintf("\nChat '%s' not found, please try again: ", msg)))
@@ -144,6 +152,7 @@ func (cm *ChatroomManager) ReadAllChatrooms() string {
 	for _, chatroom := range cm.chatroomIndex {
 		reportString += fmt.Sprintf("  -> [%d] %s\n", chatroom.ChatId, chatroom.ChatroomName)
 	}
+	reportString += "  -> [x] Create new chatroom\n"
 	reportString += "]\n"
 	return reportString
 }

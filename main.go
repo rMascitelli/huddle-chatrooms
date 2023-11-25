@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DEBUG_MODE = 1
+	DEBUG_MODE = 0
 )
 
 func DebugPrint(s string) {
@@ -55,7 +55,7 @@ func (t *TCPServer) Start() {
 	for _, chatroom := range t.chatroomMgr.chatroomIndex {
 		go chatroom.Start()
 	}
-	go t.chatroomMgr.ListenForRequests()
+	go t.chatroomMgr.listenForRequests()
 
 	// Start accepting and serving connections
 	go t.acceptLoop()
