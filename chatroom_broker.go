@@ -12,8 +12,7 @@ type ChatroomBroker struct {
 	publishCh    chan ChatMessage  // Rx messages from all connHandlers
 	subCh        chan *ConnHandler // Rx from ChatroomMgr about new subscriber
 	subs         map[int]*ConnHandler
-
-	quitCh chan struct{}
+	quitCh       chan struct{}
 }
 
 func NewChatroomBroker(chatroomName string, chatId int, quitCh chan struct{}) *ChatroomBroker {

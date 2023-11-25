@@ -55,7 +55,7 @@ func (t *TCPServer) Start() {
 	for _, chatroom := range t.chatroomMgr.chatroomIndex {
 		go chatroom.Start()
 	}
-	go t.chatroomMgr.listenForRequests()
+	go t.chatroomMgr.Start()
 
 	// Start accepting and serving connections
 	go t.acceptLoop()

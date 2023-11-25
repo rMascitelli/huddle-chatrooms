@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strings"
 )
 
 const (
@@ -12,10 +11,12 @@ const (
 		"#\n" +
 		"# Welcome to Chatroom Server\n" +
 		"# Logged in as: User%d\n" +
+		"#   ($exit to leave)\n" +
 		"#\n" +
 		"##########\n"
 	CHATROOM_ENTER_PROMPT = "\n->\n" +
 		"-> Welcome to Chat '%s'\n" +
+		"->   ($exit to leave)\n" +
 		"->\n> "
 )
 
@@ -128,7 +129,8 @@ func (c *ConnHandler) readFromConnLoop() {
 		// Don't spam new lines
 		// TODO: This should be handled by the client, dont send messages unnecessarily
 		if len(msg) > 2 {
-			if strings.HasPrefix(msg, "$exit") {
+			msg = msg[:len(msg)-2]
+			if msg == "$exit" {
 				c.PublishCh = nil // Stop reads from being published
 				c.UnsubCh <- UnsubEvent{
 					UserId: c.UserId,
