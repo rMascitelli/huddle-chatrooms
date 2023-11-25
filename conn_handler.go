@@ -142,7 +142,7 @@ func (c *ConnHandler) readFromConnLoop() {
 				if c.PublishCh != nil {
 					c.PublishCh <- ChatMessage{
 						UserId:  c.UserId,
-						Payload: msg[:len(msg)-2],
+						Payload: msg,
 					}
 				}
 			}
